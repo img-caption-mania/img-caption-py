@@ -163,21 +163,24 @@ class BahdanauAttention(tf.keras.Model):
   def call(self, features, hidden):
     # features(CNN_encoder output) shape == (batch_size, 64, embedding_dim) 64, 64, 256
 
-    # hidden shape == (batch_size, hidden_size)  64, ...
-    # hidden_with_time_axis shape == (batch_size, 1, hidden_size)
+    # hidden shape == (batch_size, hidden_size)  64, 512
+    # hidden_with_time_axis shape == (batch_size, 1, hidden_size) (64, 1, 512)
     hidden_with_time_axis = tf.expand_dims(hidden, 1)
 
     # score shape == (batch_size, 64, hidden_size)
     score = tf.nn.tanh(self.W1(features) + self.W2(hidden_with_time_axis)) # vector_size 512 + vector_size 512
 
     # attention_weights shape == (batch_size, 64, 1) # from 512 --> 1 fc
+    # (64, 64, 1)
     # you get 1 at the last axis because you are applying score to self.V
     attention_weights = tf.nn.softmax(self.V(score), axis=1)
-    print("attention_weights: ",attention_weights)
+    # print("attention_weights: ",attention_weights)
 
     # context_vector shape after sum == (batch_size, hidden_size)
-    context_vector = attention_weights * features # dot_prod feature x attention
+    context_vector = attention_weights * features # multiplication feature x attention
+    # context_vector:  Tensor("rnn__decoder_1/bahdanau_attention_1/mul:0", shape=(64, 64, 256), dtype=float32)
     context_vector = tf.reduce_sum(context_vector, axis=1) # vector sum
+    # context_vector:  Tensor("rnn__decoder_11/bahdanau_attention/Sum:0", shape=(64, 256), dtype=float32)
 
     return context_vector, attention_weights
 
@@ -227,20 +230,25 @@ class RNN_Decoder(tf.keras.Model): # init RNN_Decoder(embedding_dim, units, voca
 
     # passing the concatenated vector to the GRU
     output, state = self.gru(x)  # output to predicted words and state to next GRU layer unit
+    # output:  Tensor("rnn__decoder_2/gru_2/transpose_1:0", shape=(64, 1, 512), dtype=float32)
+    # state:  Tensor("rnn__decoder_2/gru_2/while:4", shape=(64, 512), dtype=float32)    
 
     # shape == (batch_size, max_length, hidden_size) # maximum_length of caption sentence = 13, hidden_sz = 512
     x = self.fc1(output)
+    # x fc1 output:  Tensor("rnn__decoder_2/dense_13/BiasAdd:0", shape=(64, 1, 512), dtype=float32)
 
     # x shape == (batch_size * max_length, hidden_size)
     x = tf.reshape(x, (-1, x.shape[2]))
+    # x reshape:  Tensor("rnn__decoder_2/Reshape:0", shape=(64, 512), dtype=float32)
 
-    # output shape == (batch_size * max_length, vocab) # vocab = 5001 need to be adjust to own vocab size
+    # output shape == (batch_size * max_length, vocab) # vocab = 201 need to be adjust to own vocab size
     x = self.fc2(x)
+    # x fc2:  Tensor("rnn__decoder_2/dense_14/BiasAdd:0", shape=(64, 201), dtype=float32)
 
     return x, state, attention_weights    # x for predicted words class , state for GRU next hidden layer, attention_weights ???
 
   def reset_state(self, batch_size):
-    return tf.zeros((batch_size, self.units))
+    return tf.zeros((batch_size, self.units)) # 64 x 512
 
 
 def loss_function(real, pred):
@@ -258,7 +266,7 @@ def train_step(img_tensor, target): # input from img tensor, n target word capti
 
   # initializing the hidden state for each batch
   # because the captions are not related from image to image
-  hidden = decoder.reset_state(batch_size=target.shape[0]) # 64
+  hidden = decoder.reset_state(batch_size=target.shape[0]) # zeros(64x512)
 
   # word index <start> -> 2 
   dec_input = tf.expand_dims([tokenizer.word_index['<start>']] * target.shape[0], 1) # decide input
@@ -273,14 +281,14 @@ def train_step(img_tensor, target): # input from img tensor, n target word capti
       # print("target.shape[1]: ", target.shape[1])
       # target.shape[1]:  13
 
-      for i in range(1, target.shape[1]): # loop over the target 13-1 times
+      for i in range(1, target.shape[1]): # loop over the target 1-13 times (1 word 1 loop)
           # passing the features through the decoder
           # overwrite hidden from attention
           predictions, hidden, _ = decoder(dec_input, features, hidden)
-          print(i)
+          # print(i)
 
           loss += loss_function(target[:, i], predictions)
-          print("target[:, i]: ", target[:, i])
+          # print("target[:, i]: ", target[:, i])
 
           # using teacher forcing # overwrite new decide_input
           dec_input = tf.expand_dims(target[:, i], 1)
@@ -295,6 +303,55 @@ def train_step(img_tensor, target): # input from img tensor, n target word capti
   optimizer.apply_gradients(zip(gradients, trainable_variables))
 
   return loss, total_loss
+
+# ----disini
+def evaluate(image):
+    # np zeros 13x64
+    attention_plot = np.zeros((max_length, attention_features_shape))
+
+    # tf zeros 1x512
+    hidden = decoder.reset_state(batch_size=1)
+
+    temp_input = tf.expand_dims(load_image(image)[0], 0)
+    img_tensor_val = image_features_extract_model(temp_input)
+    img_tensor_val = tf.reshape(img_tensor_val, (img_tensor_val.shape[0], -1, img_tensor_val.shape[3]))
+
+    features = encoder(img_tensor_val)
+
+    dec_input = tf.expand_dims([tokenizer.word_index['<start>']], 0)
+    result = []
+
+    for i in range(max_length):
+        predictions, hidden, attention_weights = decoder(dec_input, features, hidden)
+
+        attention_plot[i] = tf.reshape(attention_weights, (-1, )).numpy()
+
+        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
+        result.append(tokenizer.index_word[predicted_id])
+
+        if tokenizer.index_word[predicted_id] == '<end>':
+            return result, attention_plot
+
+        dec_input = tf.expand_dims([predicted_id], 0)
+
+    attention_plot = attention_plot[:len(result), :]
+    return result, attention_plot
+
+def plot_attention(image, result, attention_plot):
+    temp_image = np.array(Image.open(image))
+
+    fig = plt.figure(figsize=(10, 10))
+
+    len_result = len(result)
+    for l in range(len_result):
+        temp_att = np.resize(attention_plot[l], (8, 8))
+        ax = fig.add_subplot(len_result//2, len_result//2, l+1)
+        ax.set_title(result[l])
+        img = ax.imshow(temp_image)
+        ax.imshow(temp_att, cmap='gray', alpha=0.6, extent=img.get_extent())
+
+    plt.tight_layout()
+    plt.show()
 
 
 train_captions, img_name_vector = collect_capImg(annotations)
@@ -367,59 +424,6 @@ plt.ylabel('Loss')
 plt.title('Loss Plot')
 plt.show()
 
-"""## Caption!
-
-* The evaluate function is similar to the training loop, except you don't use teacher forcing here. The input to the decoder at each time step is its previous predictions along with the hidden state and the encoder output.
-* Stop predicting when the model predicts the end token.
-* And store the attention weights for every time step.
-"""
-
-def evaluate(image):
-    attention_plot = np.zeros((max_length, attention_features_shape))
-
-    hidden = decoder.reset_state(batch_size=1)
-
-    temp_input = tf.expand_dims(load_image(image)[0], 0)
-    img_tensor_val = image_features_extract_model(temp_input)
-    img_tensor_val = tf.reshape(img_tensor_val, (img_tensor_val.shape[0], -1, img_tensor_val.shape[3]))
-
-    features = encoder(img_tensor_val)
-
-    dec_input = tf.expand_dims([tokenizer.word_index['<start>']], 0)
-    result = []
-
-    for i in range(max_length):
-        predictions, hidden, attention_weights = decoder(dec_input, features, hidden)
-
-        attention_plot[i] = tf.reshape(attention_weights, (-1, )).numpy()
-
-        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
-        result.append(tokenizer.index_word[predicted_id])
-
-        if tokenizer.index_word[predicted_id] == '<end>':
-            return result, attention_plot
-
-        dec_input = tf.expand_dims([predicted_id], 0)
-
-    attention_plot = attention_plot[:len(result), :]
-    return result, attention_plot
-
-def plot_attention(image, result, attention_plot):
-    temp_image = np.array(Image.open(image))
-
-    fig = plt.figure(figsize=(10, 10))
-
-    len_result = len(result)
-    for l in range(len_result):
-        temp_att = np.resize(attention_plot[l], (8, 8))
-        ax = fig.add_subplot(len_result//2, len_result//2, l+1)
-        ax.set_title(result[l])
-        img = ax.imshow(temp_image)
-        ax.imshow(temp_att, cmap='gray', alpha=0.6, extent=img.get_extent())
-
-    plt.tight_layout()
-    plt.show()
-
 # captions on the validation set
 rid = np.random.randint(0, len(img_name_val))
 image = img_name_val[rid]
@@ -429,10 +433,6 @@ result, attention_plot = evaluate(image)
 print ('Real Caption:', real_caption)
 print ('Prediction Caption:', ' '.join(result))
 plot_attention(image, result, attention_plot)
-
-"""## Try it on your own images
-For fun, below we've provided a method you can use to caption your own images with the model we've just trained. Keep in mind, it was trained on a relatively small amount of data, and your images may be different from the training data (so be prepared for weird results!)
-"""
 
 image_path = '/content/drive/My Drive/img_caption/data_test/IC5.jpg'
 # image_extension = image_url[-4:]
@@ -488,8 +488,3 @@ print ('Prediction Caption:', ' '.join(result))
 plot_attention(image_path, result, attention_plot)
 # opening the image
 Image.open(image_path)
-
-"""# Next steps
-
-Congrats! You've just trained an image captioning model with attention. Next, take a look at this example [Neural Machine Translation with Attention](../sequences/nmt_with_attention.ipynb). It uses a similar architecture to translate between Spanish and English sentences. You can also experiment with training the code in this notebook on a different dataset.
-"""
