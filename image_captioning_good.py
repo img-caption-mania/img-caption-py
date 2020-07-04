@@ -15,16 +15,16 @@ from PIL import Image
 from tqdm import tqdm
 import pickle
 
-PATH = "/content/drive/My Drive/img_caption/clean_data"
-checkpoint_path = "/content/drive/My Drive/img_caption/checkpoints/train"
-BATCH_SIZE = 64
+PATH = os.getcwd()
+checkpoint_path = PATH + "/checkpoints/train"
+BATCH_SIZE = 3
 BUFFER_SIZE = 1000
-EPOCHS = 50
+EPOCHS = 1
 embedding_dim = 256
 units = 512
-top_k = 5000
+top_k = 200
 vocab_size = top_k + 1
-num_steps = len(384) // BATCH_SIZE  # 384 / 64 = 6
+num_steps = 384 // BATCH_SIZE  # 384 / 64 = 6 # from 80% of data train
 
 # Shape of the vector extracted from InceptionV3 is (64, 2048)
 # These two variables represent that vector shape
@@ -44,7 +44,7 @@ def collect_capImg(annotations, num_examples=480):
     for annot in annotations:
         caption = '<start> ' + annot['caption'] + ' <end>'
         image_id = annot['image_id']
-        full_image_path = PATH + '/img_gabung/{IMG}'.format(IMG=image_id)
+        full_image_path = PATH + '/dataset/{IMG}'.format(IMG=image_id)
         all_img_name_vector.append(full_image_path)
         all_captions.append(caption)
 
@@ -81,7 +81,7 @@ def load_image(image_path):
     img = tf.keras.applications.inception_v3.preprocess_input(img)
     return img, image_path
 
-def cache_feature(img_name_vector):
+def cache_feature(img_name_vector, image_features_extract_model):
   # - `store the resulting vector` `in a dictionary` (image_name --> feature_vector).
   # - you pickle the dictionary and save it to disk.
 
@@ -251,7 +251,7 @@ class RNN_Decoder(tf.keras.Model): # init RNN_Decoder(embedding_dim, units, voca
     return tf.zeros((batch_size, self.units)) # 64 x 512
 
 
-def loss_function(real, pred):
+def loss_function(real, pred, loss_object):
   mask = tf.math.logical_not(tf.math.equal(real, 0))
   loss_ = loss_object(real, pred)
 
@@ -261,7 +261,7 @@ def loss_function(real, pred):
   return tf.reduce_mean(loss_)
 
 @tf.function
-def train_step(img_tensor, target): # input from img tensor, n target word captions
+def train_step(img_tensor, target, decoder, encoder, tokenizer, loss_object, optimizer): # input from img tensor, n target word captions
   loss = 0
 
   # initializing the hidden state for each batch
@@ -287,7 +287,7 @@ def train_step(img_tensor, target): # input from img tensor, n target word capti
           predictions, hidden, _ = decoder(dec_input, features, hidden)
           # print(i)
 
-          loss += loss_function(target[:, i], predictions)
+          loss += loss_function(target[:, i], predictions, loss_object)
           # print("target[:, i]: ", target[:, i])
 
           # using teacher forcing # overwrite new decide_input
@@ -304,8 +304,7 @@ def train_step(img_tensor, target): # input from img tensor, n target word capti
 
   return loss, total_loss
 
-# ----disini
-def evaluate(image):
+def evaluate(image, max_length, decoder, encoder, tokenizer, image_features_extract_model):
     # np zeros 13x64
     attention_plot = np.zeros((max_length, attention_features_shape))
 
@@ -361,8 +360,11 @@ def main():
   # init img feature extractor model
   image_features_extract_model = img_featExtract()
   # cek summary feature extractor model
-  image_features_extract_model.summary()
-  cache_feature(img_name_vector)
+  # image_features_extract_model.summary()
+
+  # done caching
+  # cache_feature(img_name_vector, image_features_extract_model)
+  
   tokenizer = tokenize_cap(train_captions)
   cap_vector = vectorize_cap(tokenizer, train_captions)
   max_length = calc_max_length(tokenizer.texts_to_sequences(train_captions))
@@ -407,7 +409,7 @@ def main():
       total_loss = 0
 
       for (batch, (img_tensor, target)) in enumerate(dataset): # 384 / 64 = 6 step or 6 batch
-          batch_loss, t_loss = train_step(img_tensor, target)
+          batch_loss, t_loss = train_step(img_tensor, target, decoder, encoder, tokenizer, loss_object, optimizer)
           total_loss += t_loss
 
           if batch % 100 == 0:
@@ -433,62 +435,62 @@ def main():
   rid = np.random.randint(0, len(img_name_val))
   image = img_name_val[rid]
   real_caption = ' '.join([tokenizer.index_word[i] for i in cap_val[rid] if i not in [0]])
-  result, attention_plot = evaluate(image)
+  result, attention_plot = evaluate(image, max_length, decoder, encoder, tokenizer, image_features_extract_model)
 
   print ('Real Caption:', real_caption)
   print ('Prediction Caption:', ' '.join(result))
   plot_attention(image, result, attention_plot)
 
-  image_path = '/content/drive/My Drive/img_caption/data_test/IC5.jpg'
+  image_path = PATH + '/data_test/IC5.jpg'
   # image_extension = image_url[-4:]
   # image_path = tf.keras.utils.get_file('image'+image_extension,
   #                                      origin=image_url)
 
-  result, attention_plot = evaluate(image_path)
+  result, attention_plot = evaluate(image_path, max_length, decoder, encoder, tokenizer, image_features_extract_model)
   print ('Prediction Caption:', ' '.join(result))
   plot_attention(image_path, result, attention_plot)
   # opening the image
   Image.open(image_path)
 
-  image_path = '/content/drive/My Drive/img_caption/data_test/IC4.jpg'
+  image_path = PATH + '/data_test/IC4.jpg'
   # image_extension = image_url[-4:]
   # image_path = tf.keras.utils.get_file('image'+image_extension,
   #                                      origin=image_url)
 
-  result, attention_plot = evaluate(image_path)
+  result, attention_plot = evaluate(image_path, max_length, decoder, encoder, tokenizer, image_features_extract_model)
   print ('Prediction Caption:', ' '.join(result))
   plot_attention(image_path, result, attention_plot)
   # opening the image
   Image.open(image_path)
 
-  image_path = '/content/drive/My Drive/img_caption/data_test/IC3.JPG'
+  image_path = PATH + '/data_test/IC3.JPG'
   # image_extension = image_url[-4:]
   # image_path = tf.keras.utils.get_file('image'+image_extension,
   #                                      origin=image_url)
 
-  result, attention_plot = evaluate(image_path)
+  result, attention_plot = evaluate(image_path, max_length, decoder, encoder, tokenizer, image_features_extract_model)
   print ('Prediction Caption:', ' '.join(result))
   plot_attention(image_path, result, attention_plot)
   # opening the image
   Image.open(image_path)
 
-  image_path = '/content/drive/My Drive/img_caption/data_test/IC2.jpg'
+  image_path = PATH + '/data_test/IC2.jpg'
   # image_extension = image_url[-4:]
   # image_path = tf.keras.utils.get_file('image'+image_extension,
   #                                      origin=image_url)
 
-  result, attention_plot = evaluate(image_path)
+  result, attention_plot = evaluate(image_path, max_length, decoder, encoder, tokenizer, image_features_extract_model)
   print ('Prediction Caption:', ' '.join(result))
   plot_attention(image_path, result, attention_plot)
   # opening the image
   Image.open(image_path)
 
-  image_path = '/content/drive/My Drive/img_caption/data_test/IC1.jpg'
+  image_path = PATH + '/data_test/IC1.jpg'
   # image_extension = image_url[-4:]
   # image_path = tf.keras.utils.get_file('image'+image_extension,
   #                                      origin=image_url)
 
-  result, attention_plot = evaluate(image_path)
+  result, attention_plot = evaluate(image_path, max_length, decoder, encoder, tokenizer, image_features_extract_model)
   print ('Prediction Caption:', ' '.join(result))
   plot_attention(image_path, result, attention_plot)
   # opening the image
