@@ -312,6 +312,7 @@ def evaluate(image):
     # tf zeros 1x512
     hidden = decoder.reset_state(batch_size=1)
 
+    # load img resize n normalize 299x299x3 (`-1` - `1`) entry
     temp_input = tf.expand_dims(load_image(image)[0], 0)
     img_tensor_val = image_features_extract_model(temp_input)
     img_tensor_val = tf.reshape(img_tensor_val, (img_tensor_val.shape[0], -1, img_tensor_val.shape[3]))
@@ -353,138 +354,145 @@ def plot_attention(image, result, attention_plot):
     plt.tight_layout()
     plt.show()
 
+def main():
 
-train_captions, img_name_vector = collect_capImg(annotations)
-image_features_extract_model = img_featExtract()
-image_features_extract_model.summary()
-cache_feature(img_name_vector)
-tokenizer = tokenize_cap(train_captions)
-cap_vector = vectorize_cap(tokenizer, train_captions)
-max_length = calc_max_length(tokenizer.texts_to_sequences(train_captions))
-print(max_length)
+  # collect cap img into variable  
+  train_captions, img_name_vector = collect_capImg(annotations)
+  # init img feature extractor model
+  image_features_extract_model = img_featExtract()
+  # cek summary feature extractor model
+  image_features_extract_model.summary()
+  cache_feature(img_name_vector)
+  tokenizer = tokenize_cap(train_captions)
+  cap_vector = vectorize_cap(tokenizer, train_captions)
+  max_length = calc_max_length(tokenizer.texts_to_sequences(train_captions))
+  print(max_length)
 
-# Create training and validation sets using an 80-20 split '384 - 96'
-img_name_train, img_name_val, cap_train, cap_val = train_test_split(img_name_vector,
-                                                                    cap_vector,
-                                                                    test_size=0.2,
-                                                                    random_state=0)
+  # Create training and validation sets using an 80-20 split '384 - 96'
+  img_name_train, img_name_val, cap_train, cap_val = train_test_split(img_name_vector,
+                                                                      cap_vector,
+                                                                      test_size=0.2,
+                                                                      random_state=0)
 
-print('img_name_train: ', len(img_name_train), 'cap_train: ', len(cap_train), 'img_name_val: ', len(img_name_val), 'cap_val: ', len(cap_val))
+  print('img_name_train: ', len(img_name_train), 'cap_train: ', len(cap_train), 'img_name_val: ', len(img_name_val), 'cap_val: ', len(cap_val))
 
-dataset = load_npFile(img_name_train, cap_train, BATCH_SIZE, BUFFER_SIZE)
+  dataset = load_npFile(img_name_train, cap_train, BATCH_SIZE, BUFFER_SIZE)
 
-encoder = CNN_Encoder(embedding_dim)
-decoder = RNN_Decoder(embedding_dim, units, vocab_size)
+  encoder = CNN_Encoder(embedding_dim)
+  decoder = RNN_Decoder(embedding_dim, units, vocab_size)
 
-optimizer = tf.keras.optimizers.Adam()
-loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
-    from_logits=True, reduction='none')
+  optimizer = tf.keras.optimizers.Adam()
+  loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+      from_logits=True, reduction='none')
 
-ckpt = tf.train.Checkpoint(encoder=encoder,
-                           decoder=decoder,
-                           optimizer = optimizer)
+  ckpt = tf.train.Checkpoint(encoder=encoder,
+                            decoder=decoder,
+                            optimizer = optimizer)
 
-ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+  ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
-start_epoch = 0
+  start_epoch = 0
 
-if ckpt_manager.latest_checkpoint:
-  start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
-  # restoring the latest checkpoint in checkpoint_path
-  ckpt.restore(ckpt_manager.latest_checkpoint)
+  if ckpt_manager.latest_checkpoint:
+    start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
+    # restoring the latest checkpoint in checkpoint_path
+    ckpt.restore(ckpt_manager.latest_checkpoint)
 
-# adding this in a separate cell because if you run the training cell
-# many times, the loss_plot array will be reset
-loss_plot = []
+  # adding this in a separate cell because if you run the training cell
+  # many times, the loss_plot array will be reset
+  loss_plot = []
 
-for epoch in range(start_epoch, EPOCHS):
-    start = time.time()
-    total_loss = 0
+  for epoch in range(start_epoch, EPOCHS):
+      start = time.time()
+      total_loss = 0
 
-    for (batch, (img_tensor, target)) in enumerate(dataset): # 384 / 64 = 6 step or 6 batch
-        batch_loss, t_loss = train_step(img_tensor, target)
-        total_loss += t_loss
+      for (batch, (img_tensor, target)) in enumerate(dataset): # 384 / 64 = 6 step or 6 batch
+          batch_loss, t_loss = train_step(img_tensor, target)
+          total_loss += t_loss
 
-        if batch % 100 == 0:
-            print ('Epoch {} Batch {} Loss {:.4f}'.format(
-              epoch + 1, batch, batch_loss.numpy() / int(target.shape[1])))
-    # storing the epoch end loss value to plot later
-    loss_plot.append(total_loss / num_steps)
+          if batch % 100 == 0:
+              print ('Epoch {} Batch {} Loss {:.4f}'.format(
+                epoch + 1, batch, batch_loss.numpy() / int(target.shape[1])))
+      # storing the epoch end loss value to plot later
+      loss_plot.append(total_loss / num_steps)
 
-    if epoch % 5 == 0:
-      ckpt_manager.save()
+      if epoch % 5 == 0:
+        ckpt_manager.save()
 
-    print ('Epoch {} Loss {:.6f}'.format(epoch + 1,
-                                         total_loss/num_steps))
-    print ('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+      print ('Epoch {} Loss {:.6f}'.format(epoch + 1,
+                                          total_loss/num_steps))
+      print ('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
-plt.plot(loss_plot)
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
-plt.title('Loss Plot')
-plt.show()
+  plt.plot(loss_plot)
+  plt.xlabel('Epochs')
+  plt.ylabel('Loss')
+  plt.title('Loss Plot')
+  plt.show()
 
-# captions on the validation set
-rid = np.random.randint(0, len(img_name_val))
-image = img_name_val[rid]
-real_caption = ' '.join([tokenizer.index_word[i] for i in cap_val[rid] if i not in [0]])
-result, attention_plot = evaluate(image)
+  # captions on the validation set
+  rid = np.random.randint(0, len(img_name_val))
+  image = img_name_val[rid]
+  real_caption = ' '.join([tokenizer.index_word[i] for i in cap_val[rid] if i not in [0]])
+  result, attention_plot = evaluate(image)
 
-print ('Real Caption:', real_caption)
-print ('Prediction Caption:', ' '.join(result))
-plot_attention(image, result, attention_plot)
+  print ('Real Caption:', real_caption)
+  print ('Prediction Caption:', ' '.join(result))
+  plot_attention(image, result, attention_plot)
 
-image_path = '/content/drive/My Drive/img_caption/data_test/IC5.jpg'
-# image_extension = image_url[-4:]
-# image_path = tf.keras.utils.get_file('image'+image_extension,
-#                                      origin=image_url)
+  image_path = '/content/drive/My Drive/img_caption/data_test/IC5.jpg'
+  # image_extension = image_url[-4:]
+  # image_path = tf.keras.utils.get_file('image'+image_extension,
+  #                                      origin=image_url)
 
-result, attention_plot = evaluate(image_path)
-print ('Prediction Caption:', ' '.join(result))
-plot_attention(image_path, result, attention_plot)
-# opening the image
-Image.open(image_path)
+  result, attention_plot = evaluate(image_path)
+  print ('Prediction Caption:', ' '.join(result))
+  plot_attention(image_path, result, attention_plot)
+  # opening the image
+  Image.open(image_path)
 
-image_path = '/content/drive/My Drive/img_caption/data_test/IC4.jpg'
-# image_extension = image_url[-4:]
-# image_path = tf.keras.utils.get_file('image'+image_extension,
-#                                      origin=image_url)
+  image_path = '/content/drive/My Drive/img_caption/data_test/IC4.jpg'
+  # image_extension = image_url[-4:]
+  # image_path = tf.keras.utils.get_file('image'+image_extension,
+  #                                      origin=image_url)
 
-result, attention_plot = evaluate(image_path)
-print ('Prediction Caption:', ' '.join(result))
-plot_attention(image_path, result, attention_plot)
-# opening the image
-Image.open(image_path)
+  result, attention_plot = evaluate(image_path)
+  print ('Prediction Caption:', ' '.join(result))
+  plot_attention(image_path, result, attention_plot)
+  # opening the image
+  Image.open(image_path)
 
-image_path = '/content/drive/My Drive/img_caption/data_test/IC3.JPG'
-# image_extension = image_url[-4:]
-# image_path = tf.keras.utils.get_file('image'+image_extension,
-#                                      origin=image_url)
+  image_path = '/content/drive/My Drive/img_caption/data_test/IC3.JPG'
+  # image_extension = image_url[-4:]
+  # image_path = tf.keras.utils.get_file('image'+image_extension,
+  #                                      origin=image_url)
 
-result, attention_plot = evaluate(image_path)
-print ('Prediction Caption:', ' '.join(result))
-plot_attention(image_path, result, attention_plot)
-# opening the image
-Image.open(image_path)
+  result, attention_plot = evaluate(image_path)
+  print ('Prediction Caption:', ' '.join(result))
+  plot_attention(image_path, result, attention_plot)
+  # opening the image
+  Image.open(image_path)
 
-image_path = '/content/drive/My Drive/img_caption/data_test/IC2.jpg'
-# image_extension = image_url[-4:]
-# image_path = tf.keras.utils.get_file('image'+image_extension,
-#                                      origin=image_url)
+  image_path = '/content/drive/My Drive/img_caption/data_test/IC2.jpg'
+  # image_extension = image_url[-4:]
+  # image_path = tf.keras.utils.get_file('image'+image_extension,
+  #                                      origin=image_url)
 
-result, attention_plot = evaluate(image_path)
-print ('Prediction Caption:', ' '.join(result))
-plot_attention(image_path, result, attention_plot)
-# opening the image
-Image.open(image_path)
+  result, attention_plot = evaluate(image_path)
+  print ('Prediction Caption:', ' '.join(result))
+  plot_attention(image_path, result, attention_plot)
+  # opening the image
+  Image.open(image_path)
 
-image_path = '/content/drive/My Drive/img_caption/data_test/IC1.jpg'
-# image_extension = image_url[-4:]
-# image_path = tf.keras.utils.get_file('image'+image_extension,
-#                                      origin=image_url)
+  image_path = '/content/drive/My Drive/img_caption/data_test/IC1.jpg'
+  # image_extension = image_url[-4:]
+  # image_path = tf.keras.utils.get_file('image'+image_extension,
+  #                                      origin=image_url)
 
-result, attention_plot = evaluate(image_path)
-print ('Prediction Caption:', ' '.join(result))
-plot_attention(image_path, result, attention_plot)
-# opening the image
-Image.open(image_path)
+  result, attention_plot = evaluate(image_path)
+  print ('Prediction Caption:', ' '.join(result))
+  plot_attention(image_path, result, attention_plot)
+  # opening the image
+  Image.open(image_path)
+
+if __name__ == "__main__":
+    main()
