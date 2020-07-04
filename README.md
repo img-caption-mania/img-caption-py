@@ -1,9 +1,13 @@
 ### img-caption-py
 
 ### create env
-    conda create -n myenv python=3.6
 
-    conda install requirements for notebook
+    conda create -n myenv python=3.6
+    
+    conda activate myenv
+
+### conda install requirements for notebook
+    
     conda install notebook ipykernel nb_conda_kernels
     
     pip install -r requirements.txt
