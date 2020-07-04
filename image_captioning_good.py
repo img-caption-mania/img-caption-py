@@ -19,7 +19,7 @@ PATH = os.getcwd()
 checkpoint_path = PATH + "/checkpoints/train"
 BATCH_SIZE = 3
 BUFFER_SIZE = 1000
-EPOCHS = 1
+EPOCHS = 20
 embedding_dim = 256
 units = 512
 top_k = 200
@@ -362,8 +362,8 @@ def main():
   # cek summary feature extractor model
   # image_features_extract_model.summary()
 
-  # done caching
-  # cache_feature(img_name_vector, image_features_extract_model)
+  # done caching you can comment this one below
+  cache_feature(img_name_vector, image_features_extract_model)
   
   tokenizer = tokenize_cap(train_captions)
   cap_vector = vectorize_cap(tokenizer, train_captions)
