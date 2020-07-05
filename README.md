@@ -1,5 +1,11 @@
 ### img-caption-py
 
+### clone repo
+    
+    git clone https://github.com/img-caption-mania/img-caption-py.git
+    
+    cd img-caption-py
+
 ### create env
 
     conda create -n myenv python=3.6
