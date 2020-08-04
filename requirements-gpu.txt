@@ -1,0 +1,9 @@
+tensorflow-gpu
+scikit-learn
+matplotlib
+Pillow
+tqdm
+gdown
+
+# conda install -c anaconda cudatoolkit
+# conda install -c anaconda cudnn
