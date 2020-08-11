@@ -8,7 +8,7 @@
 
 ### create env
 
-    conda create -n myenv python=3.6
+    conda create -n myenv python=3.7
     
     conda activate myenv
 
@@ -17,6 +17,9 @@
     conda install notebook ipykernel nb_conda_kernels
     
     pip install -r requirements.txt
+    
+    or
+    pip install -r requirements-gpu.txt # if u want to use GPU
 
 
 ### download dataset
