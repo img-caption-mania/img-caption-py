@@ -17,9 +17,9 @@ import pickle
 
 PATH = os.getcwd()
 checkpoint_path = PATH + "/checkpoints/train"
-BATCH_SIZE = 3
+BATCH_SIZE = 64
 BUFFER_SIZE = 1000
-EPOCHS = 20
+EPOCHS = 250
 embedding_dim = 256
 units = 512
 top_k = 200
@@ -205,7 +205,7 @@ class RNN_Decoder(tf.keras.Model): # init RNN_Decoder(embedding_dim, units, voca
     super(RNN_Decoder, self).__init__()
     self.units = units                          # hidden units 512
 
-    self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim) # (5001, 256)
+    self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim) # (5001, 256) , (201,256)
 
     self.gru = tf.keras.layers.GRU(self.units,
                                    return_sequences=True,
